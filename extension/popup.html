@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elo for LeetCode</title>
+  <link rel="stylesheet" href="popup.css">
+  <script defer src="model.js"></script>
+  <script defer src="popup.js"></script>
+</head>
+<body>
+  <header><p class="eyebrow">LEETCODE PRACTICE</p><h1>Elo for LeetCode</h1></header>
+  <main>
+    <section class="card" aria-labelledby="level-title">
+      <h2 id="level-title">Your practice level</h2>
+      <p id="rating" class="rating">—</p>
+      <p id="level-note" class="muted" role="status">Loading practice data…</p>
+    </section>
+    <section aria-labelledby="next">
+      <div class="row"><h2 id="next">Next problems</h2>
+        <select id="band" aria-label="Recommendation difficulty">
+          <option value="near">At my level</option><option value="warmup">Warm-up</option>
+          <option value="stretch">Stretch</option>
+        </select>
+      </div>
+      <ul id="recommendations"></ul>
+    </section>
+    <details>
+      <summary>Import past independent solves</summary>
+      <p class="muted">Paste LeetCode problem links or slugs, one per line. Unknown problems are skipped; visit their pages first. Solve-only estimates are provisional.</p>
+      <label for="solves">Problem links or slugs</label>
+      <textarea id="solves" maxlength="200000" rows="4" placeholder="two-sum"></textarea>
+      <button id="import" type="button">Import solves</button>
+      <p id="import-note" class="muted" role="status"></p>
+    </details>
+  </main>
+  <footer><span id="catalog"></span> · Saved on this browser<br>
+    Unofficial estimates, not Codeforces or LeetCode account ratings.
+  </footer>
+</body>
+</html>

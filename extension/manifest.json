@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Elo for LeetCode",
+  "version": "0.1.0",
+  "description": "See contest ratings and estimated difficulty, track practice, and find your next problem.",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "Elo for LeetCode",
+    "default_popup": "popup.html"
+  },
+  "background": { "service_worker": "worker.js" },
+  "content_scripts": [{
+    "matches": ["https://leetcode.com/*"],
+    "js": ["model.js", "content.js"],
+    "run_at": "document_idle"
+  }]
+}

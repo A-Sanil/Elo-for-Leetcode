@@ -1,0 +1,9 @@
+{
+  "name": "elo-for-leetcode",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "refresh-ratings": "node scripts/refresh-ratings.mjs"
+  }
+}
