@@ -25,13 +25,25 @@
 
   function resolve(slug, contest, local, cfg) {
     if (!validSlug(slug)) return null;
+    const meta = Object.hasOwn(local, slug) ? local[slug] : null;
     if (Object.hasOwn(contest, slug)) {
       const [title, rating] = contest[slug];
-      return { slug, title, rating, source: 'contest' };
+      return { slug, title, rating, source: 'contest', ...(meta?.paid ? { paid: true } : {}) };
     }
-    const meta = Object.hasOwn(local, slug) ? local[slug] : null;
     if (!meta || !Object.hasOwn(cfg.tiers, meta.tier)) return null;
-    return { ...cfg.tiers[meta.tier], slug, title: meta.title, tier: meta.tier, source: 'estimate' };
+    const base = { ...cfg.tiers[meta.tier], slug, title: meta.title, tier: meta.tier, source: 'estimate' };
+    if (meta.paid) base.paid = true;
+    const n = meta.submissionCount;
+    const ac = meta.acceptedCount;
+    if (!Number.isSafeInteger(n) || n < 1 || !Number.isSafeInteger(ac) || ac < 0 || ac > n) return base;
+    const anchor = cfg.acceptanceMidpoint[meta.tier];
+    const rate = (ac + anchor * 500) / (n + 500);
+    const odds = p => p / (1 - p);
+    const delta = Math.max(-cfg.maxAcceptanceAdjustment, Math.min(cfg.maxAcceptanceAdjustment,
+      cfg.acceptanceScale * Math.log2(odds(anchor) / odds(rate))));
+    return { ...base, rating: Math.round((base.rating + delta) / 25) * 25,
+      low: Math.round((base.low + delta) / 25) * 25, high: Math.round((base.high + delta) / 25) * 25,
+      acceptance: ac / n, statsAt: meta.statsAt };
   }
 
   function chance(level, difficulty, cfg) {
@@ -39,16 +51,24 @@
   }
 
   // Fit a regularized logistic model by bisection. The score derivative is monotonic.
-  function levelFor(outcomes, contest, local, cfg) {
+  function levelFor(outcomes, contest, local, cfg, history = {}) {
     const samples = [];
-    for (const [slug, outcome] of Object.entries(outcomes)) {
-      if (outcome !== 'solved' && outcome !== 'missed') continue;
+    const slugs = new Set([...Object.keys(outcomes), ...Object.keys(history)]);
+    for (const slug of slugs) {
       const item = resolve(slug, contest, local, cfg);
-      if (item) samples.push({
-        rating: item.rating,
-        y: Number(outcome === 'solved'),
-        weight: item.source === 'contest' ? 1 : cfg.tierWeight
-      });
+      if (!item) continue;
+      const weight = item.source === 'contest' ? 1 : cfg.tierWeight;
+      const outcome = Object.hasOwn(outcomes, slug) ? outcomes[slug] : null;
+      if (outcome === 'solved' || outcome === 'missed') {
+        samples.push({ rating: item.rating, y: Number(outcome === 'solved'), solved: outcome === 'solved', weight });
+        continue;
+      }
+      const logged = history[slug];
+      if (!logged || !logged.submissions) continue;
+      const solved = logged.accepted > 0;
+      // One contribution per problem. Later resubmits do not reduce first-solve credit.
+      const y = solved ? Math.max(0.6, 1 - cfg.retryPenalty * Math.log2(logged.firstAcceptedAttempt || 1)) : 0;
+      samples.push({ rating: item.rating, y, solved, weight: weight * cfg.historyWeight, history: true });
     }
     if (!samples.length) return null;
     let lo = cfg.minRating;
@@ -60,9 +80,10 @@
       if (slope > 0) lo = mid;
       else hi = mid;
     }
-    const solved = samples.reduce((sum, sample) => sum + sample.y, 0);
+    const solved = samples.reduce((sum, sample) => sum + Number(sample.solved), 0);
     return { rating: Math.round((lo + hi) / 50) * 25, count: samples.length, solved,
-      provisional: samples.length < 12 || solved === 0 || solved === samples.length };
+      historyCount: samples.filter(sample => sample.history).length,
+      provisional: samples.some(sample => sample.history) || samples.length < 12 || solved === 0 || solved === samples.length };
   }
 
   function recommend(level, band, outcomes, contest, local, cfg) {
@@ -72,7 +93,7 @@
     return pool
       .filter(slug => !Object.hasOwn(outcomes, slug))
       .map(slug => resolve(slug, contest, local, cfg))
-      .filter(Boolean)
+      .filter(item => item && !item.paid)
       .sort((a, b) => Math.abs(a.rating - target) - Math.abs(b.rating - target)
         || Number(b.source === 'contest') - Number(a.source === 'contest')
         || a.slug.localeCompare(b.slug))

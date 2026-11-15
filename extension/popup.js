@@ -1,5 +1,9 @@
 const $ = id => document.getElementById(id);
 let generation = 0;
+let lastSync = '';
+let size = 0;
+let actionMessage = '';
+let polling = false;
 async function send(message) {
   const reply = await chrome.runtime.sendMessage(message);
   if (!reply || reply.error) throw new Error(reply?.error ?? 'No response from extension.');
@@ -8,12 +12,15 @@ async function send(message) {
 async function refresh() {
   const id = ++generation;
   try {
-    const { level, recommendations, catalogSize } = await send({ type: 'dashboard', band: $('band').value });
+    const { level, recommendations, catalogSize, history } = await send({ type: 'dashboard', band: $('band').value });
     if (id !== generation) return;
     $('rating').textContent = level ? '~' + level.rating : 'Not rated yet';
     $('level-note').textContent = level
-      ? (level.provisional ? 'Provisional · ' : '') + level.solved + ' solved / ' + level.count + ' logged. Self-reported practice.'
-      : 'Log outcomes on problem pages to personalize recommendations.';
+      ? (level.provisional ? 'Provisional · ' : '') + level.solved + ' solved / ' + level.count + ' rated practice problems.'
+      : 'Sync your history or log an outcome to personalize recommendations.';
+    size = history?.count ?? 0;
+    if (size) $('level-note').textContent += ' History: ' + history.solved.toLocaleString() + ' solved, ' +
+      history.submissions.toLocaleString() + ' judged submissions.';
     $('catalog').textContent = catalogSize.toLocaleString() + ' known problems';
     $('recommendations').replaceChildren();
     for (const p of recommendations) {
@@ -39,6 +46,69 @@ async function refresh() {
 }
 
 $('band').addEventListener('change', refresh);
+
+async function sendToTab(type) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id == null) throw new Error('Open LeetCode in the active tab.');
+  return chrome.tabs.sendMessage(tab.id, { type });
+}
+async function updateCurrent() {
+  try {
+    const result = await sendToTab('current');
+    if (!result?.problem) throw new Error();
+    const p = result.problem;
+    $('current-title').textContent = p.title + ' · ' + (p.source === 'contest' ? p.rating : '~' + p.rating);
+    let caption = p.source === 'contest' ? 'ZeroTrac contest rating'
+      : (p.acceptance == null ? 'Tier-only estimate' : 'Estimate · ' + (p.acceptance * 100).toFixed(1) + '% acceptance');
+    if (result.stats) caption += ' · You: ' + result.stats.accepted + '/' + result.stats.submissions + ' accepted';
+    $('current-note').textContent = caption;
+  } catch {
+    $('current-title').textContent = 'Open a LeetCode problem to see its rating.';
+    $('current-note').textContent = '';
+  }
+}
+async function updateSync() {
+  try {
+    const state = await send({ type: 'syncState' });
+    const key = [state.state, state.updatedAt, state.message].join(':');
+    if (key !== lastSync) {
+      lastSync = key;
+      if (state.state === 'done' || state.state === 'idle') await refresh();
+    }
+    const working = state.state === 'running';
+    $('sync').disabled = working;
+    $('clear-history').hidden = !size || working;
+    $('sync-note').textContent = actionMessage || (working
+      ? 'Reading history… ' + state.count.toLocaleString() + ' entries. Keep the LeetCode tab open.'
+      : state.state === 'done'
+        ? 'Sync complete. ' + (state.catalogLoaded ? 'Catalog updated.' : 'Catalog unavailable; some problems may be unrated.')
+        : state.state === 'error' ? state.message : 'Use a signed-in LeetCode tab. History stays in this browser.');
+  } catch { /* popup can be closed while a sync runs */ }
+}
+async function poll() {
+  if (polling) return;
+  polling = true;
+  try { await Promise.all([updateCurrent(), updateSync()]); }
+  finally { polling = false; }
+}
+$('sync').addEventListener('click', async () => {
+  actionMessage = '';
+  $('sync').disabled = true;
+  try {
+    const reply = await sendToTab('startTabSync');
+    if (reply?.error) throw new Error(reply.error);
+    if (!reply?.ok) throw new Error('No response.');
+    $('sync-note').textContent = 'Starting… Keep the LeetCode tab open.';
+  } catch {
+    actionMessage = 'Open a signed-in leetcode.com tab, reload it, then try Sync again.';
+    await updateSync();
+  }
+});
+$('clear-history').addEventListener('click', async () => {
+  actionMessage = '';
+  try { await send({ type: 'clearHistory' }); await refresh(); await poll(); }
+  catch (e) { actionMessage = e.message; await updateSync(); }
+});
 $('import').addEventListener('click', async () => {
   const text = $('solves').value.trim();
   if (!text) return;
@@ -52,3 +122,5 @@ $('import').addEventListener('click', async () => {
   finally { $('import').disabled = false; }
 });
 refresh();
+void poll();
+setInterval(poll, 1000);

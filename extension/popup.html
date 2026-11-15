@@ -11,10 +11,20 @@
 <body>
   <header><p class="eyebrow">LEETCODE PRACTICE</p><h1>Elo for LeetCode</h1></header>
   <main>
+    <section class="card current" aria-labelledby="current-heading">
+      <h2 id="current-heading">Current problem</h2>
+      <p id="current-title">Open a LeetCode problem to see its rating.</p>
+      <p id="current-note" class="muted"></p>
+    </section>
     <section class="card" aria-labelledby="level-title">
       <h2 id="level-title">Your practice level</h2>
       <p id="rating" class="rating">—</p>
       <p id="level-note" class="muted" role="status">Loading practice data…</p>
+      <div class="sync-actions">
+        <button id="sync" type="button">Sync LeetCode history</button>
+        <button id="clear-history" type="button" hidden>Clear history</button>
+      </div>
+      <p id="sync-note" class="muted" role="status">Use a signed-in LeetCode tab. History stays in this browser.</p>
     </section>
     <section aria-labelledby="next">
       <div class="row"><h2 id="next">Next problems</h2>

@@ -7,6 +7,10 @@ h1{font-size:22px;letter-spacing:-.025em}
 h2{font-size:13px;font-weight:700}
 .eyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;color:#a8ebce;margin-bottom:3px}
 .card{padding:12px;border-radius:12px;background:#1b2535;border:1px solid #334253}
+.current{margin-bottom:8px}
+#current-title{margin:3px 0;color:#a8ebce;font-weight:700;overflow-wrap:anywhere}
+.sync-actions{margin:9px 0 5px;display:flex;flex-wrap:wrap;gap:5px}
+button:disabled{opacity:.55;cursor:default}
 .rating{font-size:30px;font-weight:760;color:#a8ebce;line-height:1.2;margin:3px 0 4px}
 .muted,footer{color:#b2bdd0;font-size:11px}
 .row{display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px}
