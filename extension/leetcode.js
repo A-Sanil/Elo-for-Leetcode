@@ -4,7 +4,6 @@
   const tierFor = value => tiers.get(String(value).toLowerCase());
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const pageSize = 20;
-  const recentLimit = 20;
   const maxPages = 1000;
   const accepted = /^accepted$/i;
   const failed = /^(wrong answer|time limit exceeded|memory limit exceeded|output limit exceeded|runtime error|compile error|compilation error|presentation error)$/i;
@@ -16,9 +15,9 @@
     });
     if (!response.ok) {
       const hint = response.status === 429 ? 'LeetCode rate-limited the request. Wait before trying again.'
-        : [401, 403].includes(response.status) ? 'LeetCode denied this request (HTTP ' + response.status + ').'
+        : [401, 403].includes(response.status) ? 'LeetCode denied access. Check that you’re signed in on this tab.'
         : 'LeetCode returned HTTP ' + response.status + '.';
-      throw Object.assign(new Error(hint), { status: response.status });
+      throw new Error(hint);
     }
     if (!response.headers.get('content-type')?.includes('json')) {
       throw new Error('LeetCode did not return data. Check that you’re signed in and reload the tab.');
@@ -26,12 +25,15 @@
     return response.json();
   }
 
+  const tagSlugs = tags => Array.isArray(tags)
+    ? [...new Set(tags.map(t => t && t.slug).filter(s => M.validSlug(s)))].slice(0, 12) : [];
+
   async function fetchProblem(slug, request = jsonRequest) {
     if (!M.validSlug(slug)) return null;
     const data = await request('/graphql/', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        query: 'query EloProblemStats($slug: String!) { question(titleSlug: $slug) { titleSlug title difficulty stats isPaidOnly } }',
+        query: 'query EloProblemStats($slug: String!) { question(titleSlug: $slug) { titleSlug title difficulty stats isPaidOnly topicTags { slug } } }',
         variables: { slug }
       })
     });
@@ -40,7 +42,8 @@
     let stats = {};
     try { stats = JSON.parse(q.stats) ?? {}; } catch { /* no acceptance data */ }
     return { title: q.title, tier: tierFor(q.difficulty), acceptedCount: stats.totalAcceptedRaw,
-      submissionCount: stats.totalSubmissionRaw, paid: q.isPaidOnly === true, statsAt: Date.now() };
+      submissionCount: stats.totalSubmissionRaw, paid: q.isPaidOnly === true, tags: tagSlugs(q.topicTags),
+      statsAt: Date.now() };
   }
 
   async function fetchCatalog(request = jsonRequest) {
@@ -59,25 +62,28 @@
     return catalog;
   }
 
-  async function fetchRecentSolves(username, request = jsonRequest) {
-    if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(username)) {
-      throw new Error('Enter your LeetCode username, not a profile URL.');
+  // Best-effort topic tags for the whole problem set, paged. Degrades to {} on any failure
+  // so a sync still succeeds without topic breakdowns.
+  async function fetchTags({ request = jsonRequest, wait = pause, limit = 100, max = 6000 } = {}) {
+    const query = 'query EloTags($skip: Int!, $limit: Int!) {' +
+      ' problemsetQuestionListV2(categorySlug: "all-code-essentials", skip: $skip, limit: $limit,' +
+      ' filters: { filterCombineType: ALL }) { hasMore questions { titleSlug topicTags { slug } } } }';
+    const tags = Object.create(null);
+    let skip = 0;
+    for (let page = 0; page < Math.ceil(max / limit); page++) {
+      let data;
+      try {
+        data = await request('/graphql/', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, variables: { skip, limit } }) });
+      } catch { return tags; }
+      const list = data?.data?.problemsetQuestionListV2;
+      if (!list || !Array.isArray(list.questions)) return tags;
+      for (const q of list.questions) if (M.validSlug(q?.titleSlug)) tags[q.titleSlug] = tagSlugs(q.topicTags);
+      if (!list.hasMore || !list.questions.length) return tags;
+      skip += list.questions.length;
+      await wait(350);
     }
-    // This public profile query is not an alternate route to private submission history.
-    const data = await request('/graphql/', {
-      method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: 'query EloRecentSolves($username: String!, $limit: Int!) { recentAcSubmissionList(username: $username, limit: $limit) { titleSlug } }',
-        variables: { username, limit: recentLimit }
-      })
-    });
-    const list = data?.data?.recentAcSubmissionList;
-    if (data?.errors?.length || !Array.isArray(list) || list.length > recentLimit ||
-        !list.every(row => M.validSlug(row?.titleSlug))) {
-      throw new Error('LeetCode did not return a usable public recent-solves list. Saved data was kept.');
-    }
-    if (!list.length) throw new Error('No public recent solves found. Verify the username and profile visibility. Saved data was kept.');
-    return [...new Set(list.map(row => row.titleSlug))];
+    return tags;
   }
 
   function rowOf(row) {
@@ -99,21 +105,43 @@
       const row = rowOf(raw);
       if (row && !unique.has(row.id)) unique.set(row.id, row);
     }
+    const ordered = [...unique.values()].sort((a, b) => a.timestamp - b.timestamp || Number(a.id) - Number(b.id));
     const counts = Object.create(null);
+    const daily = Object.create(null);
+    const bump = (ts, field) => {
+      if (!ts) return;
+      const key = M.dayKey(ts);
+      (daily[key] ??= { submissions: 0, solved: 0, attempted: 0 })[field]++;
+    };
     let acceptedAttempts = 0;
-    for (const row of [...unique.values()].sort((a, b) => a.timestamp - b.timestamp || Number(a.id) - Number(b.id))) {
+    for (const row of ordered) {
       const item = counts[row.slug] ??= {
         title: typeof row.title === 'string' ? row.title.slice(0, 180) : row.slug,
-        tier: row.tier, submissions: 0, accepted: 0, firstAcceptedAttempt: null
+        tier: row.tier, submissions: 0, accepted: 0, firstAcceptedAttempt: null,
+        firstTime: 0, firstACTime: 0, lastTime: 0
       };
       item.submissions++;
+      if (row.timestamp) {
+        if (!item.firstTime) item.firstTime = row.timestamp;
+        if (row.timestamp > item.lastTime) item.lastTime = row.timestamp;
+      }
+      bump(row.timestamp, 'submissions');
       if (row.win) {
         acceptedAttempts++;
         item.accepted++;
-        item.firstAcceptedAttempt ??= item.submissions;
+        if (item.firstAcceptedAttempt == null) {
+          item.firstAcceptedAttempt = item.submissions;
+          item.firstACTime = row.timestamp || 0;
+        }
       }
     }
-    return { counts, total: unique.size, acceptedAttempts };
+    // One solved/attempted tally per problem, on the day it was first solved (or first tried).
+    for (const slug in counts) {
+      const item = counts[slug];
+      if (item.accepted > 0) bump(item.firstACTime, 'solved');
+      else bump(item.firstTime, 'attempted');
+    }
+    return { counts, daily, total: unique.size, acceptedAttempts };
   }
 
   async function fetchHistory({ request = jsonRequest, progress = async () => {}, wait = pause } = {}) {
@@ -148,6 +176,74 @@
     throw new Error('History exceeded the safety limit (20,000 rows). Your old history was kept.');
   }
 
-  globalThis.LcSite = { fetchProblem, fetchCatalog, summarize, fetchHistory, fetchRecentSolves };
+  // ---- Collection import (best-effort) ---------------------------------------
+  // Parse a pasted LeetCode collection URL or bare slug into { type, id }.
+  function parseCollection(input) {
+    const token = String(input || '').trim();
+    if (!token) return null;
+    try {
+      const url = new URL(token);
+      if (url.hostname !== 'leetcode.com') return null;
+      const fav = url.searchParams.get('favoriteSlug');
+      if (fav) return { type: 'favorite', id: fav };
+      const sel = url.searchParams.get('selectedList');
+      if (sel) return { type: 'list', id: sel };
+      let m = /^\/studyplan\/([^/]+)/.exec(url.pathname);
+      if (m) return { type: 'favorite', id: m[1] };
+      m = /^\/company\/([^/]+)/.exec(url.pathname);
+      if (m) return { type: 'favorite', id: m[1] + '-all' };
+      m = /^\/list\/([^/]+)/.exec(url.pathname);
+      if (m) return { type: 'list', id: m[1] };
+      return null;
+    } catch { /* not a URL */ }
+    return /^[A-Za-z0-9-]+$/.test(token) ? { type: 'favorite', id: token } : null;
+  }
+
+  async function fetchFavorite(id, request) {
+    const query = 'query EloFavorite($favoriteSlug: String!, $limit: Int!, $skip: Int!) {' +
+      ' favoriteQuestionList(favoriteSlug: $favoriteSlug, limit: $limit, skip: $skip)' +
+      ' { hasMore questions { titleSlug title difficulty topicTags { slug } } } }';
+    const out = [];
+    let skip = 0;
+    while (out.length < 1000) {
+      const data = await request('/graphql/', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { favoriteSlug: id, limit: 100, skip } }) });
+      const list = data?.data?.favoriteQuestionList;
+      if (!list) throw new Error('No list found for “' + id + '”. It may be private, premium, or misspelled.');
+      for (const q of (list.questions || [])) {
+        if (M.validSlug(q?.titleSlug)) out.push({ slug: q.titleSlug, title: q.title,
+          tier: tierFor(q.difficulty) || undefined, tags: tagSlugs(q.topicTags) });
+      }
+      if (!list.hasMore) break;
+      skip += 100;
+    }
+    return out;
+  }
+
+  async function fetchListDetail(id, request) {
+    const data = await request('/list/api/get_question_detail/' + encodeURIComponent(id) + '/');
+    const raw = data?.questions || data?.question_list || [];
+    return raw.map(q => ({
+      slug: q.stat?.question__title_slug || q.titleSlug || '',
+      title: q.stat?.question__title || q.title || '',
+      tier: tierFor(q.difficulty?.level) || tierFor(q.difficulty) || undefined, tags: []
+    })).filter(p => M.validSlug(p.slug));
+  }
+
+  async function fetchCollection(input, request = jsonRequest) {
+    const parsed = parseCollection(input);
+    if (!parsed) throw new Error('Unrecognized collection. Paste a company list, study plan, or selectedList URL.');
+    if (parsed.type === 'list') return fetchListDetail(parsed.id, request);
+    try { return await fetchFavorite(parsed.id, request); }
+    catch (err) {
+      // A bare slug that is really a personal list can still work through the REST detail endpoint.
+      try { const viaList = await fetchListDetail(parsed.id, request); if (viaList.length) return viaList; }
+      catch { /* fall through to the original error */ }
+      throw err;
+    }
+  }
+
+  globalThis.LcSite = { fetchProblem, fetchCatalog, fetchTags, summarize, fetchHistory,
+    parseCollection, fetchCollection };
   if (typeof module === 'object' && module.exports) module.exports = globalThis.LcSite;
 })();

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elo for LeetCode — Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+  <script defer src="config.js"></script>
+  <script defer src="model.js"></script>
+  <script defer src="data/roadmap.js"></script>
+  <script defer src="dashboard.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">LEETCODE PRACTICE</p>
+      <h1>Dashboard</h1>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="Sections">
+      <button type="button" data-tab="overview" class="active">Overview</button>
+      <button type="button" data-tab="memory">Problem memory</button>
+      <button type="button" data-tab="roadmap">Roadmap</button>
+      <button type="button" data-tab="data">Data</button>
+    </nav>
+  </header>
+
+  <main id="main">
+    <p id="empty" class="empty" hidden>No practice data yet. Open the extension popup on a signed-in
+      leetcode.com tab and click <strong>Sync LeetCode history</strong>, then reload this page.</p>
+
+    <section id="overview" class="tab-panel">
+      <div class="tiles" id="tiles"></div>
+      <div class="chart-card"><h2>Activity</h2><div id="heatmap" class="scroll-x"></div><p class="legend" id="heatmap-legend"></p></div>
+      <div class="chart-grid">
+        <div class="chart-card"><h2>Problems solved over time</h2><div id="cumulative"></div></div>
+        <div class="chart-card"><h2>By difficulty</h2><div id="difficulty"></div></div>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-card"><h2>Rating distribution (solved)</h2><div id="ratinghist"></div></div>
+        <div class="chart-card"><h2>Top topics</h2><div id="topics"></div></div>
+      </div>
+      <div class="chart-card"><h2>What to work on</h2><div id="coach"></div></div>
+    </section>
+
+    <section id="memory" class="tab-panel" hidden>
+      <div class="filters" id="filters">
+        <input id="f-text" type="search" placeholder="Search title, slug, tag, note">
+        <select id="f-tier"><option value="">Any difficulty</option><option>Easy</option><option>Medium</option><option>Hard</option></select>
+        <select id="f-topic"><option value="">Any topic</option></select>
+        <select id="f-status"><option value="">Any status</option><option value="solved">Solved</option><option value="attempted">Attempted</option><option value="unsolved">Unsolved</option></select>
+        <label>From <input id="f-from" type="date"></label>
+        <label>To <input id="f-to" type="date"></label>
+        <input id="f-min" type="number" placeholder="Min rating" min="0" max="4000">
+        <input id="f-max" type="number" placeholder="Max rating" min="0" max="4000">
+        <select id="f-sort"><option value="recent">Most recent</option><option value="rating-desc">Rating high→low</option><option value="rating-asc">Rating low→high</option><option value="title">Title A→Z</option></select>
+        <button id="f-reset" type="button">Reset</button>
+        <button id="f-csv" type="button">Export CSV</button>
+      </div>
+      <p id="memory-count" class="muted"></p>
+      <div class="scroll-x"><table id="memory-table"><thead><tr>
+        <th>Problem</th><th>Rating</th><th>Diff</th><th>Topics</th><th>Subs</th><th>AC</th><th>Solved on</th><th>Note</th>
+      </tr></thead><tbody id="memory-body"></tbody></table></div>
+    </section>
+
+    <section id="roadmap" class="tab-panel" hidden>
+      <div class="chart-card">
+        <h2>NeetCode 150 <span id="nc-progress" class="muted"></span></h2>
+        <div id="neetcode"></div>
+      </div>
+      <div class="chart-card">
+        <h2>Custom roadmaps</h2>
+        <div id="custom-roadmaps"></div>
+        <details class="builder">
+          <summary>+ New roadmap</summary>
+          <label for="rm-name">Name</label>
+          <input id="rm-name" type="text" maxlength="80" placeholder="Amazon top 50">
+          <label for="rm-input">Paste problem links/slugs (one per line), or a single collection URL</label>
+          <textarea id="rm-input" rows="5" placeholder="two-sum&#10;https://leetcode.com/problems/house-robber/&#10;— or —&#10;https://leetcode.com/company/amazon/?favoriteSlug=amazon-all"></textarea>
+          <div class="builder-actions">
+            <button id="rm-create" type="button">Create from pasted problems</button>
+            <button id="rm-import" type="button">Import collection URL</button>
+          </div>
+          <p id="rm-note" class="muted" role="status"></p>
+        </details>
+      </div>
+    </section>
+
+    <section id="data" class="tab-panel" hidden>
+      <div class="chart-card">
+        <h2>Daily goal</h2>
+        <p class="muted">Shown on the extension icon and in the popup.</p>
+        <input id="d-goal" type="number" min="1" max="100"> problems per day
+      </div>
+      <div class="chart-card">
+        <h2>Backup &amp; restore</h2>
+        <p class="muted">Everything stays in this browser. Export a JSON backup, or move it to another machine.</p>
+        <div class="builder-actions">
+          <button id="d-export" type="button">Export backup (JSON)</button>
+          <button id="d-csv" type="button">Export all problems (CSV)</button>
+          <label class="file-btn">Restore from JSON<input id="d-import" type="file" accept="application/json,.json" hidden></label>
+        </div>
+        <p id="d-note" class="muted" role="status"></p>
+      </div>
+      <div class="chart-card danger">
+        <h2>Clear imported history</h2>
+        <p class="muted">Deletes synced submission counts and the activity calendar. Manual outcomes, notes, and roadmaps stay.</p>
+        <button id="d-clear" type="button" class="danger-btn">Clear history</button>
+      </div>
+    </section>
+  </main>
+  <footer class="foot">Unofficial estimates, not Codeforces or LeetCode account ratings. All data is stored only in this browser.</footer>
+</body>
+</html>

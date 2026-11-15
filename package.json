@@ -1,9 +1,9 @@
 {
   "name": "elo-for-leetcode",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
-    "test": "node --test tests/model.test.cjs tests/history.test.cjs",
+    "test": "node --test tests/model.test.cjs tests/history.test.cjs tests/dashboard.test.cjs",
     "refresh-ratings": "node scripts/refresh-ratings.mjs"
   }
 }

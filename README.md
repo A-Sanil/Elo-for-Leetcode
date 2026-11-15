@@ -1,48 +1,75 @@
 # Elo for LeetCode
 
-An unofficial Chrome extension that shows a problem difficulty rating and recommends what to practice next. No backend, external analytics, or build step.
+An unofficial Chrome extension that rates LeetCode problems, remembers everything you've solved, and turns it into a practice dashboard, a roadmap, and next-problem picks. No backend, no external analytics, no build step. Everything stays in your browser.
 
 ## Install in Chrome
 
 1. Download this repository as a ZIP and extract it (or clone it).
 2. Go to `chrome://extensions`, turn on **Developer mode**, and click **Load unpacked**.
 3. Select the **`extension/`** folder, the one containing `manifest.json`.
-4. Reload any already-open LeetCode tabs. Open a problem to see its badge and the **Current problem** card in the extension popup.
+4. Reload any already-open LeetCode tabs. Open a problem to see its badge, or click the toolbar icon and **Open dashboard**.
 
-**Upgrading from 0.1?** Replace the files in the same unpacked `extension/` directory. Use **Reload** on its existing card rather than uninstalling so your existing manual history stays in place.
+**Upgrading?** Replace the files in the same unpacked `extension/` directory and hit **Reload** on its card so your saved history, notes and roadmaps stay in place.
+
+## What you get
+
+**On a problem page**
+- A rating badge: a ZeroTrac **contest** rating when one exists, otherwise an acceptance-adjusted **estimate**.
+- A notes box saved to that problem's memory.
+- **Focus mode** blurs difficulty, acceptance and topic tags until you hover, so you can attempt a problem cold.
+- Keyboard shortcuts (hold **Alt+Shift**): `P` toggle the panel, `N` open the next recommended problem, `R` focus mode, `S` mark solved, `X` mark not solved.
+
+**In problem / company / study-plan lists**
+- A small rating chip next to each problem link, tinted when you've already solved it.
+
+**Popup**
+- Today's solved count, your current streak, and an editable daily goal (also shown on the toolbar icon).
+- Your practice level and next-problem picks (Warm-up / At my level / Stretch).
+
+**Dashboard** (click **Open dashboard** in the popup)
+- **Overview** — practice level, totals, streaks, an activity heatmap, a solved-over-time curve, difficulty and topic breakdowns, a solved-rating histogram, and a "what to work on" panel that surfaces your weakest topics.
+- **Problem memory** — a searchable, filterable table of every problem you've touched: filter by text, difficulty, topic, status, rating range, and date range, sort it, and export the current view as CSV.
+- **Roadmap** — the NeetCode 150 grouped by phase and topic with your live progress, plus custom roadmaps you build from pasted problems or an imported collection URL.
+- **Data** — set your goal, export a full JSON backup (or all problems as CSV), restore from a backup, or clear imported history.
 
 ## Sync your existing history
 
-On a signed-in `leetcode.com` tab, open the extension popup and click **Sync LeetCode history**. Keep that tab open while it reads the paginated submission list; you can close the popup. Sync again after more submissions to refresh the local snapshot. **Clear synced data** deletes both the counted history and the recent profile import, but leaves manual practice logs intact.
+On a signed-in `leetcode.com` tab, open the popup and click **Sync LeetCode history**. Keep that tab open while it reads the paginated submission list; you can close the popup. Sync again after more submissions to refresh the snapshot. **Clear history** (in the dashboard's Data tab) deletes imported submission counts and the activity calendar but leaves manual outcomes, notes and roadmaps intact.
 
-- The extension counts each distinct judged submission once. It treats accepted submissions as solves and unsuccessful judged submissions without any AC as attempted problems. It ignores unknown verdicts, system statuses, and pending rows. It also tracks attempts up to the first AC, across languages, using the order of submissions in the imported history.
-- The history is whatever LeetCode's signed-in endpoint exposes. It can depend on the account/session and may not match the public profile calendar, which covers a different time window. Access failures, incompatible responses, and pagination problems are reported without replacing the last successful import. Sync stops on rate limits and caps at 20,000 rows.
-- If LeetCode denies access (which can happen even when signed in), open **Import recent profile solves** in the popup with a `leetcode.com` tab active. Enter your own public LeetCode username and submit. This opt-in fallback requests at most 20 recent accepted rows from the first-party profile GraphQL query `recentAcSubmissionList` without credentials. Repeated solves are deduplicated. This is not full history: total submissions, total accepts, failed attempts and retries are unavailable from the profile. Older solves and solves hidden from the public view are not imported.
-- The profile import replaces only the previous profile snapshot, never counted history or manual logs. It contributes provisional solve-only evidence for known problems, without inferring how many attempts they took. When counted history already has an accepted submission for a problem, its known retry count is used instead. If the profile query fails or returns nothing, saved data is kept; you can still log outcomes by hand or paste independent solve links into the popup.
+- Each distinct judged submission is counted once. Accepted submissions are solves; unsuccessful judged submissions without any AC are attempts. Unknown verdicts, system statuses and pending rows are ignored. Attempts up to the first AC are tracked across languages, in submission order.
+- Sync also records **when** each problem was first attempted and first solved, which powers the heatmap, the solved-over-time curve and date-range queries. Topic tags are fetched best-effort during sync to drive the topic breakdowns; if that fetch is unavailable the rest of the sync still succeeds.
+- The history is whatever LeetCode's signed-in endpoint exposes. It can depend on the account/session and may not match the public profile calendar. Access failures, incompatible responses and pagination problems are reported without replacing the last successful import. Sync stops on rate limits and caps at 20,000 rows.
 
-LeetCode's website endpoints are not a supported public API and may change. During development, a credential-free probe of `https://leetcode.com/graphql/` against a public profile returned HTTP 200 and 20 rows for the exact query used here. Anonymous requests to `/api/submissions/`, `/api/problems/all/` and `/progress/` returned HTTP 403 from the same environment. This does not verify access from a signed-in browser or establish that authenticated progress endpoints work.
+## Custom roadmaps
+
+In the dashboard's **Roadmap** tab, open **+ New roadmap**:
+
+- **Paste problems** — drop in LeetCode URLs or slugs (one per line) and click *Create from pasted problems*. Works offline.
+- **Import a collection URL** — paste a company list (`?favoriteSlug=amazon-all`), study plan (`/studyplan/top-interview-150/`) or personal list (`?selectedList=…`) and click *Import collection URL*. This reads the list through an **open, signed-in leetcode.com tab** in the same browser (so no cookies are copied); open one first if prompted. Collection import is best-effort and depends on LeetCode's unofficial endpoints.
 
 ## What the numbers mean
 
-- **Contest · 1730:** Rounded rating from [ZeroTrac](https://github.com/zerotrac/leetcode_problem_rating). This takes precedence over an estimate. The bundled contest snapshot is not a live contest rating feed.
-- **Estimate · ~1475:** For non-contest problems, the extension adjusts an Easy/Medium/Hard baseline by the problem's aggregate acceptance rate when available. The baseline controls the scale; lower acceptance than its tier's reference point raises the estimate. Small samples are shrunk toward that reference point. If stats are unavailable, it falls back to the tier. A heuristic band is not a confidence interval.
-- **Your practice level:** The model compares the difficulty of each known problem against the imported outcome. One problem gives one contribution. A first-submit AC gets full solve credit; retries before the first AC reduce credit modestly. Submissions after the first AC do not change that credit. A manual **Solved solo** or **Not solved** entry overrides that problem's imported evidence. Unrated problems can count in the history totals but not in the proficiency estimate. History-based scores are always provisional because the data cannot distinguish editorials, hints, untimed practice, or old retries.
-- **Next problems:** Choose **Warm-up**, **At my level**, or **Stretch**. The popup excludes imported and manually logged problems and hides known premium-only problems. Recommendations use the bundled catalog plus metadata it has fetched or seen; coverage depends on what is available.
+- **Contest · 1730** — rounded rating from [ZeroTrac](https://github.com/zerotrac/leetcode_problem_rating). Takes precedence over an estimate. The bundled snapshot is not a live feed.
+- **Estimate · ~1475** — for non-contest problems, an Easy/Medium/Hard baseline nudged by the problem's acceptance rate. A heuristic band, not a confidence interval.
+- **Your practice level** — a regularized estimate from your solved/attempted outcomes weighted by problem rating. History-based scores are provisional because the data can't tell editorials, hints or old retries apart.
 
-This is an **Elo-style practice estimate**, not an official LeetCode rating, a Codeforces equivalent, or a percentile. Submission count by itself is not a measure of ability.
+This is an **Elo-style practice estimate**, not an official LeetCode rating, a Codeforces equivalent, or a percentile.
 
 ## Tune it
 
-- `extension/config.js` — baseline difficulties, acceptance adjustments, retry weighting, prior, and recommendation offsets.
-- `extension/model.js` — practice level and recommendation logic.
-- `extension/leetcode.js` — first-party metadata and history adapters.
-- `extension/content.js` — badge, page detection, and sync orchestration.
-- `extension/worker.js` — local persistence and request handling.
+- `extension/config.js` — ratings, acceptance adjustments, recommendation offsets, default daily goal, histogram bucket width, heatmap length.
+- `extension/model.js` — pure logic: ratings, practice level, recommendations, and all the dashboard aggregates (streaks, heatmap, breakdowns, queries, roadmap progress). Unit-tested.
+- `extension/leetcode.js` — first-party metadata, history, tags and collection adapters (content-script side).
+- `extension/content.js` — badge, notes, focus mode, list chips, shortcuts, sync orchestration.
+- `extension/worker.js` — local persistence, message handling, the toolbar badge.
+- `extension/dashboard.html` / `dashboard.js` / `dashboard.css` — the dashboard page.
 
-Run `npm test` with Node 20+ (no dependencies to install). To regenerate the bundled contest catalog, use `npm run refresh-ratings`. For a pinned refresh, download the upstream commit's `data.json` and run `node scripts/refresh-ratings.mjs path/to/data.json COMMIT_SHA`.
+Run `npm test` with Node 20+ (no dependencies to install). To regenerate the bundled contest catalog, use `npm run refresh-ratings`.
 
 ## Data and privacy
 
-The bundled ZeroTrac snapshot includes [the upstream MIT notice](extension/data/ZEROTRAC-LICENSE.txt). The extension reads the current LeetCode problem URL and displayed difficulty. It can fetch problem stats from LeetCode, and on explicit sync it also reads submission history using your existing browser session and loads public problem metadata. It does not ask for a password or read or store cookies. The separate profile import sends only the username you enter and a fixed read-only query to LeetCode without credentials. For the profile import it saves only unique problem slugs, not the username. No raw solution code or submission IDs are stored. Your history is never sent to a third-party server. The extension runs on leetcode.com to support in-site navigation and first-party requests.
+The extension reads the current LeetCode problem URL and displayed difficulty, and can fetch problem stats and topic tags from LeetCode. On an explicit **Sync** it reads your submission history and the public problem list using your existing browser session. It **never reads or stores your login cookie** — all first-party requests are same-origin from a leetcode.com tab, so the browser attaches the session itself. Only normalized problem metadata, aggregate per-problem counts, first-attempt/first-solve timestamps, your notes, outcomes and roadmaps are stored, all in `chrome.storage.local`. Raw solution code and submission IDs are never stored, and nothing is sent to any third-party server.
 
-Not affiliated with LeetCode, Codeforces, or ZeroTrac. Unpacked extension; not a Chrome Web Store listing.
+The extension requests host access to `https://leetcode.com/*` — the one site it works on — so the dashboard can read a collection list from an open signed-in tab. The bundled ZeroTrac snapshot includes [the upstream MIT notice](extension/data/ZEROTRAC-LICENSE.txt).
+
+Not affiliated with LeetCode, Codeforces, ZeroTrac or NeetCode. Unpacked extension; not a Chrome Web Store listing.

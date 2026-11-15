@@ -9,8 +9,20 @@
   <script defer src="popup.js"></script>
 </head>
 <body>
-  <header><p class="eyebrow">LEETCODE PRACTICE</p><h1>Elo for LeetCode</h1></header>
+  <header>
+    <p class="eyebrow">LEETCODE PRACTICE</p>
+    <h1>Elo for LeetCode</h1>
+  </header>
   <main>
+    <section class="card stats" aria-label="Today and streak">
+      <div class="stat"><span class="stat-num" id="today-solved">0</span><span class="stat-label">solved today</span></div>
+      <div class="stat"><span class="stat-num" id="streak-current">0</span><span class="stat-label">day streak</span></div>
+      <div class="stat">
+        <label class="stat-label" for="goal-input">daily goal</label>
+        <input id="goal-input" type="number" min="1" max="100" inputmode="numeric" value="3">
+      </div>
+    </section>
+    <button id="open-dashboard" type="button" class="wide">Open dashboard ↗</button>
     <section class="card current" aria-labelledby="current-heading">
       <h2 id="current-heading">Current problem</h2>
       <p id="current-title">Open a LeetCode problem to see its rating.</p>
@@ -22,18 +34,9 @@
       <p id="level-note" class="muted" role="status">Loading practice data…</p>
       <div class="sync-actions">
         <button id="sync" type="button">Sync LeetCode history</button>
-        <button id="clear-history" type="button" hidden>Clear synced data</button>
+        <button id="clear-history" type="button" hidden>Clear history</button>
       </div>
       <p id="sync-note" class="muted" role="status">Use a signed-in LeetCode tab. History stays in this browser.</p>
-      <details>
-        <summary>Import recent profile solves</summary>
-        <p class="muted">If history is blocked, import solves from your own public LeetCode profile. This replaces only the previous profile import. No submission or retry counts are available.</p>
-        <form id="recent-form">
-          <label for="profile-username">LeetCode username</label>
-          <input id="profile-username" type="text" required maxlength="64" pattern="[a-zA-Z0-9_\-]{1,64}" spellcheck="false" autocomplete="off">
-          <button id="sync-recent" type="submit">Import recent solves</button>
-        </form>
-      </details>
     </section>
     <section aria-labelledby="next">
       <div class="row"><h2 id="next">Next problems</h2>

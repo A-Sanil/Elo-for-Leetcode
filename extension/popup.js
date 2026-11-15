@@ -18,11 +18,9 @@ async function refresh() {
     $('level-note').textContent = level
       ? (level.provisional ? 'Provisional · ' : '') + level.solved + ' solved / ' + level.count + ' rated practice problems.'
       : 'Sync your history or log an outcome to personalize recommendations.';
-    size = history.count + history.recentSolved;
-    if (history.count) $('level-note').textContent += ' Saved history: ' + history.solved.toLocaleString() + ' solved, ' +
+    size = history?.count ?? 0;
+    if (size) $('level-note').textContent += ' History: ' + history.solved.toLocaleString() + ' solved, ' +
       history.submissions.toLocaleString() + ' judged submissions.';
-    if (history.recentSolved) $('level-note').textContent += ' Recent profile import: ' +
-      history.recentSolved.toLocaleString() + ' solved problems; submission counts unavailable from profile.';
     $('catalog').textContent = catalogSize.toLocaleString() + ' known problems';
     $('recommendations').replaceChildren();
     for (const p of recommendations) {
@@ -47,12 +45,34 @@ async function refresh() {
   }
 }
 
-$('band').addEventListener('change', refresh);
+async function loadSummary() {
+  try {
+    const { streak, goal, today } = await send({ type: 'summary' });
+    $('today-solved').textContent = (today?.solved ?? 0).toLocaleString();
+    $('streak-current').textContent = streak?.current ?? 0;
+    if (document.activeElement !== $('goal-input')) $('goal-input').value = goal?.perDay ?? 3;
+  } catch { /* keep last values */ }
+}
 
-async function sendToTab(type, fields = {}) {
+$('band').addEventListener('change', refresh);
+$('open-dashboard').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
+});
+let goalTimer = null;
+$('goal-input').addEventListener('input', () => {
+  clearTimeout(goalTimer);
+  goalTimer = setTimeout(async () => {
+    const perDay = Number($('goal-input').value);
+    if (Number.isInteger(perDay) && perDay >= 1 && perDay <= 100) {
+      try { await send({ type: 'setGoal', perDay }); } catch { /* ignore */ }
+    }
+  }, 500);
+});
+
+async function sendToTab(type) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id == null) throw new Error('Open LeetCode in the active tab.');
-  return chrome.tabs.sendMessage(tab.id, { type, ...fields });
+  return chrome.tabs.sendMessage(tab.id, { type });
 }
 async function updateCurrent() {
   try {
@@ -62,8 +82,7 @@ async function updateCurrent() {
     $('current-title').textContent = p.title + ' · ' + (p.source === 'contest' ? p.rating : '~' + p.rating);
     let caption = p.source === 'contest' ? 'ZeroTrac contest rating'
       : (p.acceptance == null ? 'Tier-only estimate' : 'Estimate · ' + (p.acceptance * 100).toFixed(1) + '% acceptance');
-    if (result.stats) caption += ' · Saved history: ' + result.stats.accepted + '/' + result.stats.submissions + ' accepted';
-    if (result.recentSolve) caption += ' · Recent profile solve (submission counts unavailable from profile)';
+    if (result.stats) caption += ' · You: ' + result.stats.accepted + '/' + result.stats.submissions + ' accepted';
     $('current-note').textContent = caption;
   } catch {
     $('current-title').textContent = 'Open a LeetCode problem to see its rating.';
@@ -73,21 +92,18 @@ async function updateCurrent() {
 async function updateSync() {
   try {
     const state = await send({ type: 'syncState' });
-    const key = [state.state, state.source, state.updatedAt, state.message].join(':');
+    const key = [state.state, state.updatedAt, state.message].join(':');
     if (key !== lastSync) {
       lastSync = key;
-      if (state.state === 'done' || state.state === 'idle') await refresh();
+      if (state.state === 'done' || state.state === 'idle') { await refresh(); await loadSummary(); }
     }
     const working = state.state === 'running';
-    const recent = state.source === 'recent';
     $('sync').disabled = working;
-    $('sync-recent').disabled = working;
     $('clear-history').hidden = !size || working;
     $('sync-note').textContent = actionMessage || (working
-      ? (recent ? 'Reading public recent solves…' : 'Reading history… ' + state.count.toLocaleString() + ' entries.') + ' Keep the LeetCode tab open.'
+      ? 'Reading history… ' + state.count.toLocaleString() + ' entries. Keep the LeetCode tab open.'
       : state.state === 'done'
-        ? (recent ? 'Recent solves imported. Submission counts unavailable from profile.' :
-          'Sync complete. ' + (state.catalogLoaded ? 'Catalog updated.' : 'Catalog unavailable; some problems may be unrated.'))
+        ? 'Sync complete. ' + (state.catalogLoaded ? 'Catalog updated.' : 'Catalog unavailable; some problems may be unrated.')
         : state.state === 'error' ? state.message : 'Use a signed-in LeetCode tab. History stays in this browser.');
   } catch { /* popup can be closed while a sync runs */ }
 }
@@ -97,29 +113,22 @@ async function poll() {
   try { await Promise.all([updateCurrent(), updateSync()]); }
   finally { polling = false; }
 }
-async function startSync(type, fields, tabHint) {
+$('sync').addEventListener('click', async () => {
   actionMessage = '';
-  $('sync').disabled = $('sync-recent').disabled = true;
+  $('sync').disabled = true;
   try {
-    const reply = await sendToTab(type, fields);
-    if (reply?.error) actionMessage = reply.error;
+    const reply = await sendToTab('startTabSync');
+    if (reply?.error) throw new Error(reply.error);
     if (!reply?.ok) throw new Error('No response.');
     $('sync-note').textContent = 'Starting… Keep the LeetCode tab open.';
   } catch {
-    actionMessage ||= tabHint;
+    actionMessage = 'Open a signed-in leetcode.com tab, reload it, then try Sync again.';
     await updateSync();
   }
-}
-$('sync').addEventListener('click', () => startSync('startTabSync', {},
-  'Open a signed-in leetcode.com tab, reload it, then try Sync again.'));
-$('recent-form').addEventListener('submit', event => {
-  event.preventDefault();
-  void startSync('startRecentSync', { username: $('profile-username').value.trim() },
-    'Open a leetcode.com tab, reload it, then try Import recent solves again.');
 });
 $('clear-history').addEventListener('click', async () => {
   actionMessage = '';
-  try { await send({ type: 'clearHistory' }); await refresh(); await poll(); }
+  try { await send({ type: 'clearHistory' }); await refresh(); await loadSummary(); await poll(); }
   catch (e) { actionMessage = e.message; await updateSync(); }
 });
 $('import').addEventListener('click', async () => {
@@ -135,5 +144,6 @@ $('import').addEventListener('click', async () => {
   finally { $('import').disabled = false; }
 });
 refresh();
+loadSummary();
 void poll();
 setInterval(poll, 1000);

@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Elo for LeetCode",
-  "version": "0.2.1",
-  "description": "See contest ratings and estimated difficulty, track practice, and find your next problem.",
+  "version": "0.3.0",
+  "description": "Ratings, a practice dashboard with problem memory and graphs, a roadmap, notes, focus mode, and next-problem picks.",
   "permissions": ["storage"],
+  "host_permissions": ["https://leetcode.com/*"],
   "action": {
     "default_title": "Elo for LeetCode",
     "default_popup": "popup.html"

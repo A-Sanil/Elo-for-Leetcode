@@ -17,5 +17,9 @@ globalThis.LcConfig = Object.freeze({
   maxRating: 3800,
   scale: 400,
   recommendationOffsets: { warmup: -150, near: 0, stretch: 200 },
-  recommendationCount: 5
+  recommendationCount: 5,
+  // Dashboard + quality-of-life settings.
+  goalPerDay: 3,          // default daily solve goal; user can change it.
+  ratingBucket: 200,      // width of a rating-histogram bucket.
+  heatmapWeeks: 27        // weeks shown in the activity heatmap (~6 months).
 });
