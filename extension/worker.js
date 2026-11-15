@@ -4,7 +4,7 @@ const M = globalThis.LcModel;
 const CFG = globalThis.LcConfig;
 const contest = globalThis.LcContest.problems;
 let queue = Promise.resolve();
-const defaults = { local: {}, outcomes: {}, siteCatalog: {}, history: {}, sync: null };
+const defaults = { local: {}, outcomes: {}, siteCatalog: {}, history: {}, recentSolves: [], sync: null };
 
 function metaOf(value) {
   if (!value || !Object.hasOwn(CFG.tiers, value.tier)) return null;
@@ -37,7 +37,7 @@ async function run(message, sender) {
   const { type, slug } = message;
   const stateOnly = ['syncState', 'syncStart', 'syncProgress', 'syncError', 'clearHistory'].includes(type);
   const stored = await chrome.storage.local.get(stateOnly ? { sync: null } : defaults);
-  const { local, outcomes, siteCatalog, history, sync } = stored;
+  const { local, outcomes, siteCatalog, history, recentSolves, sync } = stored;
   if (type === 'syncState') {
     if (sync?.state === 'running' && Date.now() - sync.updatedAt > 90000) {
       const stopped = { state: 'error', message: 'The sync was interrupted. Restart it from a LeetCode tab.' };
@@ -48,17 +48,26 @@ async function run(message, sender) {
   }
   if (type === 'syncStart' && sender.tab?.id != null) {
     if (sync?.state === 'running' && Date.now() - sync.updatedAt < 90000) return { error: 'A sync is already running.' };
-    const next = { state: 'running', id: crypto.randomUUID(), tab: sender.tab.id, count: 0, updatedAt: Date.now() };
+    const source = message.source === 'recent' ? 'recent' : 'history';
+    const next = { state: 'running', source, id: crypto.randomUUID(), tab: sender.tab.id, count: 0, updatedAt: Date.now() };
     await chrome.storage.local.set({ sync: next });
     return { id: next.id };
   }
-  if (['syncProgress', 'syncFinish', 'syncError'].includes(type)) {
+  if (['syncProgress', 'syncFinish', 'recentFinish', 'syncError'].includes(type)) {
     if (sync?.state !== 'running' || sync.id !== message.id || sync.tab !== sender.tab?.id) return { error: 'Sync is no longer active.' };
     if (type === 'syncProgress') {
       await chrome.storage.local.set({ sync: { ...sync, count: Number(message.count) || 0, updatedAt: Date.now() } });
     } else if (type === 'syncError') {
       await chrome.storage.local.set({ sync: { state: 'error', message: String(message.error).slice(0, 250) } });
+    } else if (type === 'recentFinish') {
+      const list = message.slugs;
+      if (sync.source !== 'recent' || !Array.isArray(list) || !list.length || list.length > 20 ||
+          !list.every(M.validSlug)) throw new Error('Invalid public recent-solves list. Saved data was kept.');
+      const slugs = [...new Set(list)];
+      await chrome.storage.local.set({ recentSolves: slugs, sync: { state: 'done', source: 'recent',
+        count: slugs.length, updatedAt: Date.now() } });
     } else {
+      if (sync.source === 'recent') throw new Error('A public recent-solves import cannot update submission counts.');
       const clean = {};
       for (const [key, item] of Object.entries(message.history ?? {})) {
         if (!M.validSlug(key) || !Number.isSafeInteger(item?.submissions) || item.submissions < 1 ||
@@ -84,7 +93,7 @@ async function run(message, sender) {
   }
   if (type === 'clearHistory') {
     if (sync?.state === 'running' && Date.now() - sync.updatedAt < 90000) throw new Error('Wait for the current sync to finish.');
-    await chrome.storage.local.set({ history: {}, sync: null });
+    await chrome.storage.local.set({ history: {}, recentSolves: [], sync: null });
     return { ok: true };
   }
   const catalog = mergeCatalog(siteCatalog, local, history);
@@ -104,7 +113,8 @@ async function run(message, sender) {
     }
     return { problem: M.resolve(slug, contest, catalog, CFG),
       outcome: Object.hasOwn(outcomes, slug) ? outcomes[slug] : null,
-      stats: Object.hasOwn(history, slug) ? history[slug] : null };
+      stats: Object.hasOwn(history, slug) ? history[slug] : null,
+      recentSolve: recentSolves.includes(slug) };
   }
   if (type === 'outcome' && M.resolve(slug, contest, catalog, CFG)) {
     if (message.outcome === null) delete outcomes[slug];
@@ -114,12 +124,14 @@ async function run(message, sender) {
     return { outcome: Object.hasOwn(outcomes, slug) ? outcomes[slug] : null };
   }
   if (type === 'dashboard') {
-    const level = M.levelFor(outcomes, contest, catalog, CFG, history);
+    const level = M.levelFor(outcomes, contest, catalog, CFG, history, recentSolves);
     const attempted = { ...history, ...outcomes };
+    for (const slug of recentSolves) attempted[slug] = true;
     const counts = Object.values(history);
     return { level, recommendations: M.recommend(level, message.band, attempted, contest, catalog, CFG),
       history: { solved: counts.filter(h => h.accepted > 0).length, count: counts.length,
-        submissions: counts.reduce((sum, h) => sum + h.submissions, 0) },
+        submissions: counts.length ? counts.reduce((sum, h) => sum + h.submissions, 0) : null,
+        recentSolved: recentSolves.length },
       catalogSize: new Set([...Object.keys(contest), ...Object.keys(catalog)]).size };
   }
   if (type === 'import' && typeof message.text === 'string') {

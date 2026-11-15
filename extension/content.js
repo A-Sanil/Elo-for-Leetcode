@@ -11,10 +11,13 @@
     return data;
   }
 
-  async function syncHistory() {
-    let id;
+  async function syncHistory(id, source, username) {
     try {
-      ({ id } = await send({ type: 'syncStart' }));
+      if (source === 'recent') {
+        const slugs = await site.fetchRecentSolves(username);
+        await send({ type: 'recentFinish', id, slugs });
+        return;
+      }
       const { counts } = await site.fetchHistory({
         progress: count => send({ type: 'syncProgress', id, count })
       });
@@ -23,9 +26,14 @@
       try { catalog = await site.fetchCatalog(); } catch { /* known ratings still work */ }
       await send({ type: 'syncFinish', id, history: counts, catalog });
     } catch (e) {
-      if (!id) return;
+      let error = e?.message || 'Sync failed.';
+      if ([401, 403].includes(e?.status)) {
+        error += source === 'recent'
+          ? ' Try pasting solve links instead. Saved data was kept.'
+          : ' This can happen even when signed in. Use Import recent profile solves or paste solve links. Saved history was kept.';
+      }
       try {
-        await send({ type: 'syncError', id, error: e?.message || 'Sync failed.' });
+        await send({ type: 'syncError', id, error });
       } catch { /* worker may have been reloaded */ }
     } finally { syncing = false; }
   }
@@ -34,15 +42,22 @@
     if (sender.id !== chrome.runtime.id) return;
     if (message?.type === 'current') {
       respond(current?.problem && current.problem.slug === M.problemSlug(location.pathname) ? current : null);
-    } else if (message?.type === 'startTabSync') {
+    } else if (message?.type === 'startTabSync' || message?.type === 'startRecentSync') {
       if (syncing) return respond({ error: 'A sync is already running on this tab.' });
       syncing = true;
-      void syncHistory();
-      respond({ ok: true });
+      const source = message.type === 'startRecentSync' ? 'recent' : 'history';
+      void send({ type: 'syncStart', source }).then(({ id }) => {
+        respond({ ok: true });
+        return syncHistory(id, source, message.username);
+      }, error => {
+        syncing = false;
+        respond({ error: error.message });
+      });
+      return true;
     }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && (changes.history || changes.siteCatalog)) {
+    if (area === 'local' && (changes.history || changes.siteCatalog || changes.recentSolves)) {
       dirty = true;
       void tick();
     }
@@ -73,7 +88,7 @@
     return el;
   };
 
-  function render(problem, outcome, stats) {
+  function render(problem, outcome, stats, recentSolve) {
     const wasOpen = host?.shadowRoot?.querySelector('details')?.open ?? false;
     if (host) host.remove();
     host = document.createElement('aside');
@@ -101,7 +116,8 @@
       : problem.tier + ' estimate' + (problem.acceptance != null
         ? ' · ' + (problem.acceptance * 100).toFixed(1) + '% acceptance.' : ' · tier only.')));
     if (problem.source !== 'contest') panel.append(make('p', 'Heuristic band: ' + problem.low + '–' + problem.high + '.'));
-    if (stats) panel.append(make('p', 'Your history: ' + stats.submissions + ' submissions · ' + stats.accepted + ' accepted.'));
+    if (stats) panel.append(make('p', 'Saved history: ' + stats.submissions + ' submissions · ' + stats.accepted + ' accepted.'));
+    if (recentSolve) panel.append(make('p', 'Recent profile solve · submission counts unavailable from profile.'));
     panel.append(make('p', 'Log one independent practice outcome:'));
     const status = make('p', '');
     status.setAttribute('role', 'status');
@@ -154,7 +170,7 @@
       const display = data => {
         if (!stillHere() || !data?.problem) return;
         current = data;
-        render(data.problem, data.outcome, data.stats);
+        render(data.problem, data.outcome, data.stats, data.recentSolve);
       };
       const data = await send({ type: 'problem', slug, title, tier });
       display(data);

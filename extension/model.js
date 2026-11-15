@@ -51,9 +51,10 @@
   }
 
   // Fit a regularized logistic model by bisection. The score derivative is monotonic.
-  function levelFor(outcomes, contest, local, cfg, history = {}) {
+  function levelFor(outcomes, contest, local, cfg, history = {}, recentSolves = []) {
     const samples = [];
-    const slugs = new Set([...Object.keys(outcomes), ...Object.keys(history)]);
+    const recent = new Set(recentSolves);
+    const slugs = new Set([...Object.keys(outcomes), ...Object.keys(history), ...recent]);
     for (const slug of slugs) {
       const item = resolve(slug, contest, local, cfg);
       if (!item) continue;
@@ -64,6 +65,12 @@
         continue;
       }
       const logged = history[slug];
+      // A visible AC proves a solve, not how many attempts it took.
+      // Use counted AC evidence when available, including its known retry penalty.
+      if (recent.has(slug) && !(logged?.accepted > 0)) {
+        samples.push({ rating: item.rating, y: 1, solved: true, weight: weight * cfg.historyWeight, history: true });
+        continue;
+      }
       if (!logged || !logged.submissions) continue;
       const solved = logged.accepted > 0;
       // One contribution per problem. Later resubmits do not reduce first-solve credit.

@@ -22,9 +22,18 @@
       <p id="level-note" class="muted" role="status">Loading practice data…</p>
       <div class="sync-actions">
         <button id="sync" type="button">Sync LeetCode history</button>
-        <button id="clear-history" type="button" hidden>Clear history</button>
+        <button id="clear-history" type="button" hidden>Clear synced data</button>
       </div>
       <p id="sync-note" class="muted" role="status">Use a signed-in LeetCode tab. History stays in this browser.</p>
+      <details>
+        <summary>Import recent profile solves</summary>
+        <p class="muted">If history is blocked, import solves from your own public LeetCode profile. This replaces only the previous profile import. No submission or retry counts are available.</p>
+        <form id="recent-form">
+          <label for="profile-username">LeetCode username</label>
+          <input id="profile-username" type="text" required maxlength="64" pattern="[a-zA-Z0-9_\-]{1,64}" spellcheck="false" autocomplete="off">
+          <button id="sync-recent" type="submit">Import recent solves</button>
+        </form>
+      </details>
     </section>
     <section aria-labelledby="next">
       <div class="row"><h2 id="next">Next problems</h2>

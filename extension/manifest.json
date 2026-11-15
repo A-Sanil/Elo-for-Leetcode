@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Elo for LeetCode",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "See contest ratings and estimated difficulty, track practice, and find your next problem.",
   "permissions": ["storage"],
   "action": {

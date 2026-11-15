@@ -4,6 +4,7 @@
   const tierFor = value => tiers.get(String(value).toLowerCase());
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const pageSize = 20;
+  const recentLimit = 20;
   const maxPages = 1000;
   const accepted = /^accepted$/i;
   const failed = /^(wrong answer|time limit exceeded|memory limit exceeded|output limit exceeded|runtime error|compile error|compilation error|presentation error)$/i;
@@ -15,9 +16,9 @@
     });
     if (!response.ok) {
       const hint = response.status === 429 ? 'LeetCode rate-limited the request. Wait before trying again.'
-        : [401, 403].includes(response.status) ? 'LeetCode denied access. Check that you’re signed in on this tab.'
+        : [401, 403].includes(response.status) ? 'LeetCode denied this request (HTTP ' + response.status + ').'
         : 'LeetCode returned HTTP ' + response.status + '.';
-      throw new Error(hint);
+      throw Object.assign(new Error(hint), { status: response.status });
     }
     if (!response.headers.get('content-type')?.includes('json')) {
       throw new Error('LeetCode did not return data. Check that you’re signed in and reload the tab.');
@@ -56,6 +57,27 @@
         submissionCount: s.total_submitted, paid: row.paid_only === true, statsAt: Date.now() };
     }
     return catalog;
+  }
+
+  async function fetchRecentSolves(username, request = jsonRequest) {
+    if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(username)) {
+      throw new Error('Enter your LeetCode username, not a profile URL.');
+    }
+    // This public profile query is not an alternate route to private submission history.
+    const data = await request('/graphql/', {
+      method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: 'query EloRecentSolves($username: String!, $limit: Int!) { recentAcSubmissionList(username: $username, limit: $limit) { titleSlug } }',
+        variables: { username, limit: recentLimit }
+      })
+    });
+    const list = data?.data?.recentAcSubmissionList;
+    if (data?.errors?.length || !Array.isArray(list) || list.length > recentLimit ||
+        !list.every(row => M.validSlug(row?.titleSlug))) {
+      throw new Error('LeetCode did not return a usable public recent-solves list. Saved data was kept.');
+    }
+    if (!list.length) throw new Error('No public recent solves found. Verify the username and profile visibility. Saved data was kept.');
+    return [...new Set(list.map(row => row.titleSlug))];
   }
 
   function rowOf(row) {
@@ -126,6 +148,6 @@
     throw new Error('History exceeded the safety limit (20,000 rows). Your old history was kept.');
   }
 
-  globalThis.LcSite = { fetchProblem, fetchCatalog, summarize, fetchHistory };
+  globalThis.LcSite = { fetchProblem, fetchCatalog, summarize, fetchHistory, fetchRecentSolves };
   if (typeof module === 'object' && module.exports) module.exports = globalThis.LcSite;
 })();
