@@ -1,6 +1,6 @@
 # Elo for LeetCode
 
-An unofficial Chrome extension that rates LeetCode problems, remembers everything you've solved, and turns it into a practice dashboard, a roadmap, and next-problem picks. No backend, no external analytics, no build step. Everything stays in your browser.
+An unofficial Chrome extension that rates LeetCode problems, tracks the practice and submission history you import, and turns it into a practice dashboard, a roadmap, and next-problem picks. No backend, no external analytics, no build step. Everything stays in your browser.
 
 ## Install in Chrome
 
@@ -34,11 +34,13 @@ An unofficial Chrome extension that rates LeetCode problems, remembers everythin
 
 ## Sync your existing history
 
-On a signed-in `leetcode.com` tab, open the popup and click **Sync LeetCode history**. Keep that tab open while it reads the paginated submission list; you can close the popup. Sync again after more submissions to refresh the snapshot. **Clear history** (in the dashboard's Data tab) deletes imported submission counts and the activity calendar but leaves manual outcomes, notes and roadmaps intact.
+On a signed-in `leetcode.com` tab, open the popup and click **Sync LeetCode history**. Keep that tab open while it reads the paginated submission list; you can close the popup. Sync again after more submissions to refresh the snapshot. **Clear history** (in the dashboard's Data tab) deletes imported submission counts, public recent solves, and the activity calendar but leaves manual outcomes, notes and roadmaps intact.
 
 - Each distinct judged submission is counted once. Accepted submissions are solves; unsuccessful judged submissions without any AC are attempts. Unknown verdicts, system statuses and pending rows are ignored. Attempts up to the first AC are tracked across languages, in submission order.
 - Sync also records **when** each problem was first attempted and first solved, which powers the heatmap, the solved-over-time curve and date-range queries. Topic tags are fetched best-effort during sync to drive the topic breakdowns; if that fetch is unavailable the rest of the sync still succeeds.
 - The history is whatever LeetCode's signed-in endpoint exposes. It can depend on the account/session and may not match the public profile calendar. Access failures, incompatible responses and pagination problems are reported without replacing the last successful import. Sync stops on rate limits and caps at 20,000 rows.
+
+If full sync is blocked, select **Import recent profile solves** in the popup on a LeetCode tab. Enter your LeetCode username. This imports distinct problems from up to 20 publicly visible Accepted entries. It can inform your provisional rating, exclude those problems from recommendations, and show solves in Problem memory and the roadmaps. It does not import retry counts, first-solve dates, or calendar activity. It leaves your full-history snapshot and manual outcomes intact.
 
 ## Custom roadmaps
 
@@ -68,7 +70,7 @@ Run `npm test` with Node 20+ (no dependencies to install). To regenerate the bun
 
 ## Data and privacy
 
-The extension reads the current LeetCode problem URL and displayed difficulty, and can fetch problem stats and topic tags from LeetCode. On an explicit **Sync** it reads your submission history and the public problem list using your existing browser session. It **never reads or stores your login cookie** — all first-party requests are same-origin from a leetcode.com tab, so the browser attaches the session itself. Only normalized problem metadata, aggregate per-problem counts, first-attempt/first-solve timestamps, your notes, outcomes and roadmaps are stored, all in `chrome.storage.local`. Raw solution code and submission IDs are never stored, and nothing is sent to any third-party server.
+The extension reads the current LeetCode problem URL and displayed difficulty, and can fetch problem stats and topic tags from LeetCode. On an explicit **Sync** it reads your submission history and the public problem list using your existing browser session. It **never reads or stores your login cookie** — all first-party requests are same-origin from a leetcode.com tab, so the browser attaches the session itself. Only normalized problem metadata, aggregate per-problem counts, first-attempt/first-solve timestamps, your notes, outcomes and roadmaps are stored, all in `chrome.storage.local`. Raw solution code and submission IDs are never stored, and nothing is sent to any third-party server. The optional public recent-solves import sends the username you enter to LeetCode without login credentials.
 
 The extension requests host access to `https://leetcode.com/*` — the one site it works on — so the dashboard can read a collection list from an open signed-in tab. The bundled ZeroTrac snapshot includes [the upstream MIT notice](extension/data/ZEROTRAC-LICENSE.txt).
 

@@ -18,9 +18,10 @@ async function refresh() {
     $('level-note').textContent = level
       ? (level.provisional ? 'Provisional · ' : '') + level.solved + ' solved / ' + level.count + ' rated practice problems.'
       : 'Sync your history or log an outcome to personalize recommendations.';
-    size = history?.count ?? 0;
-    if (size) $('level-note').textContent += ' History: ' + history.solved.toLocaleString() + ' solved, ' +
+    size = (history?.count ?? 0) + (history?.recentSolved ?? 0);
+    if (history?.count) $('level-note').textContent += ' History: ' + history.solved.toLocaleString() + ' solved, ' +
       history.submissions.toLocaleString() + ' judged submissions.';
+    if (history?.recentSolved) $('level-note').textContent += ' Public recent solves: ' + history.recentSolved + '.';
     $('catalog').textContent = catalogSize.toLocaleString() + ' known problems';
     $('recommendations').replaceChildren();
     for (const p of recommendations) {
@@ -69,10 +70,10 @@ $('goal-input').addEventListener('input', () => {
   }, 500);
 });
 
-async function sendToTab(type) {
+async function sendToTab(type, fields = {}) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id == null) throw new Error('Open LeetCode in the active tab.');
-  return chrome.tabs.sendMessage(tab.id, { type });
+  return chrome.tabs.sendMessage(tab.id, { type, ...fields });
 }
 async function updateCurrent() {
   try {
@@ -99,11 +100,14 @@ async function updateSync() {
     }
     const working = state.state === 'running';
     $('sync').disabled = working;
+    $('sync-recent').disabled = working;
     $('clear-history').hidden = !size || working;
     $('sync-note').textContent = actionMessage || (working
-      ? 'Reading history… ' + state.count.toLocaleString() + ' entries. Keep the LeetCode tab open.'
+      ? (state.source === 'recent' ? 'Reading public profile…' :
+        'Reading history… ' + state.count.toLocaleString() + ' entries. Keep the LeetCode tab open.')
       : state.state === 'done'
-        ? 'Sync complete. ' + (state.catalogLoaded ? 'Catalog updated.' : 'Catalog unavailable; some problems may be unrated.')
+        ? (state.source === 'recent' ? 'Imported ' + state.count + ' recent public solves. No retry counts available.' :
+          'Sync complete. ' + (state.catalogLoaded ? 'Catalog updated.' : 'Catalog unavailable; some problems may be unrated.'))
         : state.state === 'error' ? state.message : 'Use a signed-in LeetCode tab. History stays in this browser.');
   } catch { /* popup can be closed while a sync runs */ }
 }
@@ -123,6 +127,24 @@ $('sync').addEventListener('click', async () => {
     $('sync-note').textContent = 'Starting… Keep the LeetCode tab open.';
   } catch {
     actionMessage = 'Open a signed-in leetcode.com tab, reload it, then try Sync again.';
+    await updateSync();
+  }
+});
+$('sync-recent').addEventListener('click', async () => {
+  const username = $('profile-name').value.trim();
+  actionMessage = '';
+  if (!username) {
+    actionMessage = 'Enter your LeetCode username.';
+    await updateSync();
+    return;
+  }
+  $('sync-recent').disabled = true;
+  try {
+    const reply = await sendToTab('startRecentSync', { username });
+    if (!reply?.ok) throw new Error(reply?.error || 'No response.');
+    $('sync-note').textContent = 'Starting public profile import…';
+  } catch {
+    actionMessage = 'Open a leetcode.com tab and reload it before importing.';
     await updateSync();
   }
 });

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Elo for LeetCode",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Ratings, a practice dashboard with problem memory and graphs, a roadmap, notes, focus mode, and next-problem picks.",
   "permissions": ["storage"],
   "host_permissions": ["https://leetcode.com/*"],

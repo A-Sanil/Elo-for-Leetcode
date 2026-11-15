@@ -5,7 +5,7 @@
   let route = null, host = null, generation = 0, inFlight = false;
   let current = null, lookedUp = false, syncing = false, dirty = false;
   let focusMode = false;
-  let noteTimer = null;
+  const pendingNotes = new Map();
 
   async function send(message) {
     const data = await chrome.runtime.sendMessage(message);
@@ -13,10 +13,15 @@
     return data;
   }
 
-  async function syncHistory() {
+  async function syncHistory(source, username) {
     let id;
     try {
-      ({ id } = await send({ type: 'syncStart' }));
+      ({ id } = await send({ type: 'syncStart', source }));
+      if (source === 'recent') {
+        const slugs = await site.fetchRecentSolves(username);
+        await send({ type: 'recentFinish', id, slugs });
+        return;
+      }
       const { counts, daily } = await site.fetchHistory({
         progress: count => send({ type: 'syncProgress', id, count })
       });
@@ -37,10 +42,10 @@
     if (sender.id !== chrome.runtime.id) return;
     if (message?.type === 'current') {
       respond(current?.problem && current.problem.slug === M.problemSlug(location.pathname) ? current : null);
-    } else if (message?.type === 'startTabSync') {
+    } else if (message?.type === 'startTabSync' || message?.type === 'startRecentSync') {
       if (syncing) return respond({ error: 'A sync is already running on this tab.' });
       syncing = true;
-      void syncHistory();
+      void syncHistory(message.type === 'startRecentSync' ? 'recent' : 'history', message.username);
       respond({ ok: true });
     } else if (message?.type === 'importCollection') {
       site.fetchCollection(message.input).then(
@@ -51,7 +56,16 @@
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (changes.history || changes.siteCatalog || changes.outcomes) { dirty = true; void tick(); listCache.clear(); }
+    if (changes.history || changes.siteCatalog || changes.outcomes || changes.recentSolves) {
+      dirty = true;
+      void tick();
+      listCache.clear();
+      for (const link of document.querySelectorAll('[data-elo-done]')) {
+        delete link.dataset.eloDone;
+        link.querySelector('.elo-chip')?.remove();
+      }
+      paintChips();
+    }
     if (changes.ui) { focusMode = changes.ui.newValue?.focusMode === true; applyFocus(); }
   });
 
@@ -89,7 +103,8 @@
     } else if (el) el.remove();
   }
 
-  function render(problem, outcome, stats, note) {
+  function render(problem, outcome, stats, note, recentSolve) {
+    const notesOpen = host?.shadowRoot?.querySelector('details details')?.open ?? false;
     const wasOpen = host?.shadowRoot?.querySelector('details')?.open ?? false;
     if (host) host.remove();
     host = document.createElement('aside');
@@ -122,6 +137,7 @@
         ? ' · ' + (problem.acceptance * 100).toFixed(1) + '% acceptance.' : ' · tier only.')));
     if (problem.source !== 'contest') panel.append(make('p', 'Heuristic band: ' + problem.low + '–' + problem.high + '.'));
     if (stats) panel.append(make('p', 'Your history: ' + stats.submissions + ' submissions · ' + stats.accepted + ' accepted.'));
+    else if (recentSolve) panel.append(make('p', 'Accepted on public profile · retries unavailable.'));
     panel.append(make('p', 'Log one independent practice outcome:'));
     const status = make('p', '');
     status.setAttribute('role', 'status');
@@ -150,22 +166,32 @@
 
     // Notes, saved to this problem's memory.
     const noteWrap = document.createElement('details');
+    noteWrap.open = notesOpen;
     noteWrap.append(make('summary', 'Notes'));
     const area = make('textarea');
     area.rows = 3;
     area.maxLength = 4000;
     area.placeholder = 'Approach, pattern, mistakes to avoid…';
-    area.value = note || '';
+    area.value = pendingNotes.get(problem.slug)?.value ?? note ?? '';
     const noteStatus = make('p', '');
     noteStatus.className = 'mini';
     noteStatus.setAttribute('role', 'status');
     area.addEventListener('input', () => {
-      clearTimeout(noteTimer);
+      const slug = problem.slug;
+      const pending = { value: area.value };
+      clearTimeout(pendingNotes.get(slug)?.timer);
       noteStatus.textContent = 'Saving…';
-      noteTimer = setTimeout(async () => {
-        try { await send({ type: 'setNote', slug: problem.slug, note: area.value }); noteStatus.textContent = 'Saved to this browser.'; }
-        catch { noteStatus.textContent = 'Could not save.'; }
+      pending.timer = setTimeout(async () => {
+        try {
+          await send({ type: 'setNote', slug, note: pending.value });
+          if (pendingNotes.get(slug) === pending) {
+            pendingNotes.delete(slug);
+            if (current?.problem.slug === slug) current.note = pending.value;
+          }
+          noteStatus.textContent = 'Saved to this browser.';
+        } catch { noteStatus.textContent = 'Could not save.'; }
       }, 600);
+      pendingNotes.set(slug, pending);
     });
     const noteSection = make('section');
     noteSection.append(area, noteStatus);
@@ -204,7 +230,7 @@
       const display = data => {
         if (!stillHere() || !data?.problem) return;
         current = data;
-        render(data.problem, data.outcome, data.stats, data.note);
+        render(data.problem, data.outcome, data.stats, data.note, data.recentSolve);
       };
       const data = await send({ type: 'problem', slug, title, tier });
       display(data);

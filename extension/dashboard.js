@@ -19,7 +19,6 @@ function elem(tag, props, kids) {
   if (props) for (const k in props) {
     if (k === 'class') e.className = props[k];
     else if (k === 'text') e.textContent = props[k];
-    else if (k === 'html') e.innerHTML = props[k];
     else e.setAttribute(k, props[k]);
   }
   for (const kid of kids || []) if (kid) e.append(kid);
@@ -228,14 +227,14 @@ function renderMemory() {
     const src = elem('span', { class: 'muted', text: r.source === 'contest' ? ' · contest' : (r.source === 'estimate' ? ' · est' : '') });
     const rating = r.rating == null ? '—' : (r.source === 'contest' ? String(r.rating) : '~' + r.rating);
     const diff = r.tier ? elem('span', { class: 'pill ' + r.tier, text: r.tier }) : document.createTextNode('—');
-    const solvedOn = r.firstACTime ? M.dayKey(r.firstACTime) : (r.solved ? '✓' : '—');
+    const solvedOn = r.solved ? (r.firstACTime ? M.dayKey(r.firstACTime) : (r.publicSolve ? '✓ Public' : '✓')) : '—';
     body.append(elem('tr', {}, [
       elem('td', {}, [link, src]),
       elem('td', { text: rating }),
       elem('td', {}, [diff]),
       elem('td', { class: 'tags', text: r.tags.slice(0, 3).join(', ') }),
-      elem('td', { text: String(r.submissions || 0) }),
-      elem('td', { text: String(r.accepted || 0) }),
+      elem('td', { text: r.publicSolve && !r.submissions ? '—' : String(r.submissions || 0) }),
+      elem('td', { text: r.publicSolve && !r.submissions ? '—' : String(r.accepted || 0) }),
       elem('td', { text: solvedOn }),
       elem('td', {}, [elem('div', { class: 'note', title: r.note, text: r.note })])
     ]));
@@ -255,12 +254,16 @@ function wireFilters() {
   $('f-csv').addEventListener('click', () => download('leetcode-memory.csv', toCsv(currentMemory()), 'text/csv'));
 }
 function toCsv(rows) {
-  const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const head = ['slug', 'title', 'tier', 'rating', 'source', 'solved', 'submissions', 'accepted', 'firstAcceptedAttempt', 'solvedDate', 'lastDate', 'tags', 'note'];
+  const q = v => {
+    let text = String(v ?? '');
+    if (typeof v === 'string' && /^(?:[\t\r\n]|[\s\uFEFF]*[=+\-@＝＋－＠])/u.test(text)) text = "'" + text;
+    return '"' + text.replace(/"/g, '""') + '"';
+  };
+  const head = ['slug', 'title', 'tier', 'rating', 'source', 'solved', 'submissions', 'accepted', 'firstAcceptedAttempt', 'solvedDate', 'lastDate', 'tags', 'note', 'publicRecentSolve'];
   const lines = [head.join(',')];
-  for (const r of rows) lines.push([r.slug, r.title, r.tier, r.rating, r.source, r.solved, r.submissions, r.accepted,
-    r.firstAcceptedAttempt, r.firstACTime ? M.dayKey(r.firstACTime) : '', r.lastTime ? M.dayKey(r.lastTime) : '',
-    r.tags.join(' '), r.note].map(q).join(','));
+  for (const r of rows) lines.push([r.slug, r.title, r.tier, r.rating, r.source, r.solved, r.publicSolve && !r.submissions ? null : r.submissions, r.publicSolve && !r.submissions ? null : r.accepted,
+    r.firstAcceptedAttempt, r.solved && r.firstACTime ? M.dayKey(r.firstACTime) : '', r.lastTime ? M.dayKey(r.lastTime) : '',
+    r.tags.join(' '), r.note, r.publicSolve].map(q).join(','));
   return lines.join('\n');
 }
 
@@ -369,7 +372,7 @@ function wireData() {
     finally { ev.target.value = ''; }
   });
   $('d-clear').addEventListener('click', async () => {
-    if (!confirm('Clear synced history and the activity calendar? Notes, outcomes and roadmaps stay.')) return;
+    if (!confirm('Clear synced history, public solves, and the activity calendar? Notes, outcomes and roadmaps stay.')) return;
     try { await send({ type: 'clearHistory' }); await load(); $('d-note').textContent = 'History cleared.'; }
     catch (e) { $('d-note').textContent = e.message; }
   });

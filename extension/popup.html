@@ -37,6 +37,13 @@
         <button id="clear-history" type="button" hidden>Clear history</button>
       </div>
       <p id="sync-note" class="muted" role="status">Use a signed-in LeetCode tab. History stays in this browser.</p>
+      <details>
+        <summary>Import recent profile solves</summary>
+        <p class="muted">If full sync is blocked, import up to 20 public Accepted entries. This does not include retries or update your activity calendar.</p>
+        <label for="profile-name">LeetCode username</label>
+        <input id="profile-name" type="text" maxlength="80" autocomplete="off" spellcheck="false">
+        <button id="sync-recent" type="button">Import recent solves</button>
+      </details>
     </section>
     <section aria-labelledby="next">
       <div class="row"><h2 id="next">Next problems</h2>

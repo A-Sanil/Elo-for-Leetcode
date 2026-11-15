@@ -15,7 +15,7 @@
     });
     if (!response.ok) {
       const hint = response.status === 429 ? 'LeetCode rate-limited the request. Wait before trying again.'
-        : [401, 403].includes(response.status) ? 'LeetCode denied access. Check that you’re signed in on this tab.'
+        : [401, 403].includes(response.status) ? 'LeetCode denied access (HTTP ' + response.status + '). If you’re signed in, try Import recent profile solves instead.'
         : 'LeetCode returned HTTP ' + response.status + '.';
       throw new Error(hint);
     }
@@ -84,6 +84,29 @@
       await wait(350);
     }
     return tags;
+  }
+
+  const recentLimit = 20;
+
+  async function fetchRecentSolves(username, request = jsonRequest) {
+    if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(username)) {
+      throw new Error('Enter your LeetCode username, not a profile URL.');
+    }
+    // This public profile query is not an alternate route to private submission history.
+    const data = await request('/graphql/', {
+      method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: 'query EloRecentSolves($username: String!, $limit: Int!) { recentAcSubmissionList(username: $username, limit: $limit) { titleSlug } }',
+        variables: { username, limit: recentLimit }
+      })
+    });
+    const list = data?.data?.recentAcSubmissionList;
+    if (data?.errors?.length || !Array.isArray(list) || list.length > recentLimit ||
+        !list.every(row => M.validSlug(row?.titleSlug))) {
+      throw new Error('LeetCode did not return a usable public recent-solves list. Saved data was kept.');
+    }
+    if (!list.length) throw new Error('No public recent solves found. Verify the username and profile visibility. Saved data was kept.');
+    return [...new Set(list.map(row => row.titleSlug))];
   }
 
   function rowOf(row) {
@@ -243,7 +266,7 @@
     }
   }
 
-  globalThis.LcSite = { fetchProblem, fetchCatalog, fetchTags, summarize, fetchHistory,
+  globalThis.LcSite = { fetchProblem, fetchCatalog, fetchTags, fetchRecentSolves, summarize, fetchHistory,
     parseCollection, fetchCollection };
   if (typeof module === 'object' && module.exports) module.exports = globalThis.LcSite;
 })();

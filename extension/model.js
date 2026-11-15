@@ -53,9 +53,10 @@
   }
 
   // Fit a regularized logistic model by bisection. The score derivative is monotonic.
-  function levelFor(outcomes, contest, local, cfg, history = {}) {
+  function levelFor(outcomes, contest, local, cfg, history = {}, recentSolves = []) {
     const samples = [];
-    const slugs = new Set([...Object.keys(outcomes), ...Object.keys(history)]);
+    const recent = new Set(recentSolves);
+    const slugs = new Set([...Object.keys(outcomes), ...Object.keys(history), ...recent]);
     for (const slug of slugs) {
       const item = resolve(slug, contest, local, cfg);
       if (!item) continue;
@@ -66,6 +67,10 @@
         continue;
       }
       const logged = history[slug];
+      if (recent.has(slug) && !(logged?.accepted > 0)) {
+        samples.push({ rating: item.rating, y: 1, solved: true, weight: weight * cfg.historyWeight, history: true });
+        continue;
+      }
       if (!logged || !logged.submissions) continue;
       const solved = logged.accepted > 0;
       // One contribution per problem. Later resubmits do not reduce first-solve credit.
@@ -128,7 +133,8 @@
     const history = stores.history || {};
     const outcomes = stores.outcomes || {};
     const notes = stores.notes || {};
-    const slugs = new Set([...Object.keys(history), ...Object.keys(outcomes), ...Object.keys(notes)]);
+    const recent = new Set(stores.recentSolves || []);
+    const slugs = new Set([...Object.keys(history), ...Object.keys(outcomes), ...Object.keys(notes), ...recent]);
     const rows = [];
     for (const slug of slugs) {
       if (!validSlug(slug)) continue;
@@ -137,7 +143,7 @@
       const outcome = Object.hasOwn(outcomes, slug) ? outcomes[slug] : null;
       const tier = item?.tier || h?.tier || null;
       const accepted = h?.accepted || 0;
-      const solved = outcome ? outcome === 'solved' : accepted > 0;
+      const solved = outcome ? outcome === 'solved' : accepted > 0 || recent.has(slug);
       rows.push({
         slug,
         title: item?.title || h?.title || slug,
@@ -149,6 +155,7 @@
         acceptance: item?.acceptance ?? null,
         submissions: h?.submissions || 0,
         accepted,
+        publicSolve: recent.has(slug),
         firstAcceptedAttempt: h?.firstAcceptedAttempt ?? null,
         firstTime: h?.firstTime || 0,
         firstACTime: h?.firstACTime || 0,
@@ -176,10 +183,10 @@
       if (f.tier && row.tier !== f.tier) return false;
       if (f.topic && !row.tags.includes(f.topic)) return false;
       if (f.status === 'solved' && !row.solved) return false;
-      if (f.status === 'attempted' && !(row.submissions > 0 && !row.solved)) return false;
+      if (f.status === 'attempted' && (row.solved || !(row.submissions > 0 || row.outcome === 'missed'))) return false;
       if (f.status === 'unsolved' && row.solved) return false;
-      if (Number.isFinite(f.minRating) && !(row.rating >= f.minRating)) return false;
-      if (Number.isFinite(f.maxRating) && !(row.rating <= f.maxRating)) return false;
+      if (Number.isFinite(f.minRating) && !(Number.isFinite(row.rating) && row.rating >= f.minRating)) return false;
+      if (Number.isFinite(f.maxRating) && !(Number.isFinite(row.rating) && row.rating <= f.maxRating)) return false;
       if (f.from || f.to) {
         const day = rowDay(row);
         if (!day) return false;

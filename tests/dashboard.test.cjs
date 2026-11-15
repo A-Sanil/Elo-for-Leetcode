@@ -110,3 +110,12 @@ test('roadmap and list progress reflect history and outcomes', () => {
   const list = M.listProgress(['two-sum', 'unknown-x'], history, {});
   assert.equal(list.total, 2); assert.equal(list.solved, 1);
 });
+
+test('rating filters exclude unrated rows and Attempted includes manual misses', () => {
+  const rows = [
+    { slug: 'missing-rating', rating: null, outcome: 'missed', solved: false, submissions: 0 },
+    { slug: 'rated', rating: 1700, outcome: null, solved: false, submissions: 1 }
+  ];
+  assert.deepEqual(M.queryMemory(rows, { status: 'attempted' }).rows, rows);
+  assert.deepEqual(M.queryMemory(rows, { maxRating: 1800 }).rows, [rows[1]]);
+});

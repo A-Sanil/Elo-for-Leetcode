@@ -5,7 +5,7 @@ const CFG = globalThis.LcConfig;
 const contest = globalThis.LcContest.problems;
 const roadmap = globalThis.LcRoadmap;
 let queue = Promise.resolve();
-const defaults = { local: {}, outcomes: {}, siteCatalog: {}, history: {}, daily: {},
+const defaults = { local: {}, outcomes: {}, siteCatalog: {}, history: {}, daily: {}, recentSolves: [],
   notes: {}, goal: null, roadmaps: {}, ui: { focusMode: false }, sync: null };
 
 function metaOf(value) {
@@ -87,7 +87,7 @@ async function run(message, sender) {
   const { type, slug } = message;
   const stateOnly = ['syncState', 'syncStart', 'syncProgress', 'syncError'].includes(type);
   const stored = await chrome.storage.local.get(stateOnly ? { sync: null } : defaults);
-  const { local, outcomes, siteCatalog, history, daily, notes, goal, roadmaps, ui, sync } = stored;
+  const { local, outcomes, siteCatalog, history, daily, recentSolves, notes, goal, roadmaps, ui, sync } = stored;
 
   if (type === 'syncState') {
     if (sync?.state === 'running' && Date.now() - sync.updatedAt > 90000) {
@@ -99,17 +99,24 @@ async function run(message, sender) {
   }
   if (type === 'syncStart' && sender.tab?.id != null) {
     if (sync?.state === 'running' && Date.now() - sync.updatedAt < 90000) return { error: 'A sync is already running.' };
-    const next = { state: 'running', id: crypto.randomUUID(), tab: sender.tab.id, count: 0, updatedAt: Date.now() };
+    const next = { state: 'running', id: crypto.randomUUID(), tab: sender.tab.id, count: 0, source: message.source === 'recent' ? 'recent' : 'history', updatedAt: Date.now() };
     await chrome.storage.local.set({ sync: next });
     return { id: next.id };
   }
-  if (['syncProgress', 'syncFinish', 'syncError'].includes(type)) {
+  if (['syncProgress', 'syncFinish', 'recentFinish', 'syncError'].includes(type)) {
     if (sync?.state !== 'running' || sync.id !== message.id || sync.tab !== sender.tab?.id) return { error: 'Sync is no longer active.' };
     if (type === 'syncProgress') {
       await chrome.storage.local.set({ sync: { ...sync, count: Number(message.count) || 0, updatedAt: Date.now() } });
     } else if (type === 'syncError') {
       await chrome.storage.local.set({ sync: { state: 'error', message: String(message.error).slice(0, 250) } });
+    } else if (type === 'recentFinish') {
+      if (sync.source !== 'recent' || !Array.isArray(message.slugs) || !message.slugs.length ||
+          message.slugs.length > 20 || !message.slugs.every(M.validSlug)) throw new Error('Invalid public recent-solves list.');
+      const slugs = [...new Set(message.slugs)];
+      await chrome.storage.local.set({ recentSolves: slugs,
+        sync: { state: 'done', source: 'recent', count: slugs.length, updatedAt: Date.now() } });
     } else {
+      if (sync.source !== 'history') throw new Error('Invalid full history import.');
       const clean = cleanHistory(message.history);
       if (!Object.keys(clean).length) throw new Error('No recognized submissions found on this account.');
       const metadata = { ...siteCatalog };
@@ -133,7 +140,7 @@ async function run(message, sender) {
   }
   if (type === 'clearHistory') {
     if (sync?.state === 'running' && Date.now() - sync.updatedAt < 90000) throw new Error('Wait for the current sync to finish.');
-    await chrome.storage.local.set({ history: {}, daily: {}, sync: null });
+    await chrome.storage.local.set({ history: {}, daily: {}, recentSolves: [], sync: null });
     await refreshBadge();
     return { ok: true };
   }
@@ -158,6 +165,7 @@ async function run(message, sender) {
     return { problem: M.resolve(slug, contest, catalog, CFG),
       outcome: Object.hasOwn(outcomes, slug) ? outcomes[slug] : null,
       stats: Object.hasOwn(history, slug) ? history[slug] : null,
+      recentSolve: recentSolves.includes(slug),
       note: notes[slug] || '' };
   }
 
@@ -182,7 +190,7 @@ async function run(message, sender) {
       if (!M.validSlug(s) || Object.hasOwn(out, s)) continue;
       const item = M.resolve(s, contest, catalog, CFG);
       out[s] = item ? { rating: item.rating, source: item.source,
-        solved: Object.hasOwn(outcomes, s) ? outcomes[s] === 'solved' : (history[s]?.accepted > 0) } : null;
+        solved: Object.hasOwn(outcomes, s) ? outcomes[s] === 'solved' : (history[s]?.accepted > 0 || recentSolves.includes(s)) } : null;
     }
     return { ratings: out };
   }
@@ -205,24 +213,26 @@ async function run(message, sender) {
 
   if (type === 'summary') {
     const counts = Object.values(history);
-    return { streak: M.streaks(daily), goal: { perDay: goal?.perDay ?? CFG.goalPerDay },
+    const streak = M.streaks(daily);
+    return { streak, today: streak.today, goal: { perDay: goal?.perDay ?? CFG.goalPerDay },
       solvedTotal: counts.filter(h => h.accepted > 0).length,
-      level: M.levelFor(outcomes, contest, catalog, CFG, history) };
+      level: M.levelFor(outcomes, contest, catalog, CFG, history, recentSolves) };
   }
 
   if (type === 'dashboard') {
-    const level = M.levelFor(outcomes, contest, catalog, CFG, history);
+    const level = M.levelFor(outcomes, contest, catalog, CFG, history, recentSolves);
     const attempted = { ...history, ...outcomes };
+    for (const key of recentSolves) attempted[key] = true;
     const counts = Object.values(history);
     return { level, recommendations: M.recommend(level, message.band, attempted, contest, catalog, CFG),
       history: { solved: counts.filter(h => h.accepted > 0).length, count: counts.length,
-        submissions: counts.reduce((sum, h) => sum + h.submissions, 0) },
+        submissions: counts.reduce((sum, h) => sum + h.submissions, 0), recentSolved: recentSolves.length },
       catalogSize: new Set([...Object.keys(contest), ...Object.keys(catalog)]).size };
   }
 
   if (type === 'dashboardData') {
-    const rows = M.memoryRows({ history, outcomes, notes }, contest, catalog, CFG);
-    const level = M.levelFor(outcomes, contest, catalog, CFG, history);
+    const rows = M.memoryRows({ history, outcomes, notes, recentSolves }, contest, catalog, CFG);
+    const level = M.levelFor(outcomes, contest, catalog, CFG, history, recentSolves);
     return { rows, daily, goal: { perDay: goal?.perDay ?? CFG.goalPerDay }, level,
       roadmaps: Object.entries(roadmaps).map(([id, r]) => ({ id, name: r.name, slugs: r.slugs, createdAt: r.createdAt })),
       catalogSize: new Set([...Object.keys(contest), ...Object.keys(catalog)]).size };
@@ -263,7 +273,7 @@ async function run(message, sender) {
 
   if (type === 'exportAll') {
     return { version: 2, exportedAt: Date.now(),
-      data: { local, outcomes, siteCatalog, history, daily, notes, goal, roadmaps, ui } };
+      data: { local, outcomes, siteCatalog, history, daily, recentSolves, notes, goal, roadmaps, ui } };
   }
   if (type === 'restore') {
     const data = message.data && typeof message.data === 'object' ? message.data : null;
@@ -271,6 +281,7 @@ async function run(message, sender) {
     const next = {};
     if (data.history) next.history = cleanHistory(data.history);
     if (data.daily) next.daily = cleanDaily(data.daily);
+    if (Array.isArray(data.recentSolves)) next.recentSolves = [...new Set(data.recentSolves.filter(M.validSlug))].slice(0, 20);
     if (data.outcomes && typeof data.outcomes === 'object') {
       next.outcomes = {};
       for (const [k, v] of Object.entries(data.outcomes)) if (M.validSlug(k) && ['solved', 'missed'].includes(v)) next.outcomes[k] = v;
@@ -290,7 +301,7 @@ async function run(message, sender) {
     if (data.roadmaps && typeof data.roadmaps === 'object') {
       next.roadmaps = {};
       for (const [id, r] of Object.entries(data.roadmaps)) {
-        if (!r || typeof r.name !== 'string' || !Array.isArray(r.slugs)) continue;
+        if (!/^[a-z0-9-]{1,80}$/.test(id) || !r || typeof r.name !== 'string' || !Array.isArray(r.slugs)) continue;
         next.roadmaps[id] = { name: r.name.slice(0, 80), slugs: r.slugs.filter(s => M.validSlug(s)).slice(0, 1000),
           createdAt: Number.isFinite(r.createdAt) ? r.createdAt : Date.now() };
       }
